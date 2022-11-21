@@ -142,7 +142,8 @@ contract LiquidationOperator is IUniswapV2Callee {
     address constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     address constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-    address constant UNI = USDC;
+    address constant A = DAI;
+    address constant B = USDC;
 
     // TODO: define constants used in the contract including ERC-20 tokens, Uniswap Pairs, Aave lending pools, etc. */
     //    *** Your code here ***
@@ -261,9 +262,13 @@ contract LiquidationOperator is IUniswapV2Callee {
     ) external override {
         // TODO: implement your liquidation logic
         address wbtc_weth = uniswap_factory.getPair(WBTC, WETH);
+        address wbtc_usdc = uniswap_factory.getPair(WBTC, USDC);
         address weth_usdt = uniswap_factory.getPair(WETH, USDT);
-        address wbtc_uni = uniswap_factory.getPair(WBTC, UNI);
-        address uni_weth = uniswap_factory.getPair(UNI, WETH);
+        address wbtc_usdt = uniswap_factory.getPair(WBTC, USDT);
+        address usdc_usdt = uniswap_factory.getPair(USDC, USDT);
+        // address weth_A = uniswap_factory.getPair(WETH, A);
+        // address A_B = uniswap_factory.getPair(A, B);
+        // address B_weth = uniswap_factory.getPair(B, WETH);
 
         // 2.0. security checks and initializing variables
         //    *** Your code here ***
@@ -278,40 +283,67 @@ contract LiquidationOperator is IUniswapV2Callee {
         
         uint256 old_wbtc_balance = IERC20(WBTC).balanceOf(address(this));
         IERC20(USDT).approve(address(aave_lending_pool), amount1);
-        ILendingPool(aave_lending_pool).liquidationCall(WBTC, USDT, liquidation_target, amount1 * 10, false);
+        ILendingPool(aave_lending_pool).liquidationCall(WBTC, USDT, liquidation_target, amount1, false);
         uint256 wbtc_balance = IERC20(WBTC).balanceOf(address(this));
-        console.log("USDT spent to liquidate:", amount1 - IERC20(USDT).balanceOf(address(this)));
         console.log("Received", wbtc_balance - old_wbtc_balance, "WBTC"); // Divide by 10^8
+        
+        // original: 9427338222
+        //  ILendingPool(aave_lending_pool).liquidationCall(WBTC, USDT, liquidation_target, amount1, false);
+        console.log("USDT spent to liquidate:", amount1 - IERC20(USDT).balanceOf(address(this)));
         require(wbtc_balance > 0, "Did not receive collateral from liquidation");
-
-        // {
-        //     (uint256 a, uint256 b,) = IUniswapV2Pair(wbtc_uni).getReserves();
-        //     console.log(a, b);
-        //     (uint256 a2, uint256 b2,) = IUniswapV2Pair(uni_weth).getReserves();
-        //     console.log(a2, b2);
-        //     IERC20(WBTC).transfer(wbtc_uni, 1e9);
-        //     console.log("New currency:", 1e9 * b / a * 95/100);
-        //     IUniswapV2Pair(wbtc_uni).swap(0, 1e9 * b / a * 80 / 100, address(this), abi.encode(""));
-        //     console.log("Received", IERC20(UNI).balanceOf(address(this)), "intermediate currency");
-        //     IERC20(UNI).transfer(uni_weth, IERC20(UNI).balanceOf(address(this)));
-        //     IUniswapV2Pair(uni_weth).swap(0, 120 ether, address(this), abi.encode(""));
-        // }
 
         // 2.2 swap WBTC for other things or repay directly
         //    *** Your code here ***
         {
             // Convert all WBTC to WETH first
-            IERC20(WBTC).transfer(wbtc_weth, wbtc_balance);
-            IUniswapV2Pair(wbtc_weth).swap(0, 1529 ether, address(this), abi.encode(""));
+            (uint256 usdc_reserve, uint256 usdt_reserve,) = IUniswapV2Pair(wbtc_weth).getReserves();
+            console.log(usdc_reserve, usdt_reserve);
+            IERC20(WBTC).transfer(wbtc_usdc, 5e8);
+            IUniswapV2Pair(wbtc_usdc).swap(0, 30550e6 * 5, address(this), abi.encode(""));
+            IERC20(USDC).transfer(usdc_usdt, 30550e6 * 5);
+            IUniswapV2Pair(usdc_usdt).swap(0, 30350e6 * 5, address(this), abi.encode(""));
+            IERC20(USDT).transfer(weth_usdt, 30350e6 * 5);
+            IERC20(WBTC).transfer(wbtc_weth, wbtc_balance - 5e8);
+            IUniswapV2Pair(wbtc_weth).swap(0, 1529 ether - 78 ether, address(this), abi.encode(""));
         }
 
+        // {
+        //     (uint256 weth_reserve, uint256 a_reserve,) = IUniswapV2Pair(weth_A).getReserves();
+        //     if (WETH > A) {
+        //         (weth_reserve, a_reserve) = (a_reserve, weth_reserve);
+        //     }
+        //     console.log(weth_reserve, a_reserve);
+        //     (uint256 a2, uint256 b_reserve,) = IUniswapV2Pair(A_B).getReserves();
+        //     console.log(a2, b_reserve);
+        //     (uint256 b2, uint256 weth2,) = IUniswapV2Pair(B_weth).getReserves();
+        //     console.log(b2, weth2);
+
+        //     IERC20(WETH).transfer(weth_A, 500 ether);
+        //     uint A_out = 500 ether * a_reserve / weth_reserve * 960 / 1000;
+        //     console.log("A out", A_out);
+
+        //     IUniswapV2Pair(weth_A).swap(A_out, 0, address(this), abi.encode(""));
+        //     console.log("Received", IERC20(A).balanceOf(address(this)), "intermediate currency A");
+
+        //     IERC20(A).transfer(A_B, IERC20(A).balanceOf(address(this)));
+        //     uint B_out = A_out * b_reserve / a2 * 930 / 1000;
+        //     console.log("B out", B_out);
+        //     IUniswapV2Pair(A_B).swap(0, B_out, address(this), abi.encode(""));
+        //     console.log("Received", IERC20(B).balanceOf(address(this)), "intermediate currency B");
+
+        //     IERC20(B).transfer(B_weth, IERC20(B).balanceOf(address(this)));
+        //     IUniswapV2Pair(B_weth).swap(0, B_out * b_reserve / weth2 * 960 / 1000, address(this), abi.encode(""));
+        //     console.log("Received", IERC20(WETH).balanceOf(address(this)), "WETH");
+        // }
+        
         uint256 earned_weth = IERC20(WETH).balanceOf(address(this));
         console.log("Received WETH:", earned_weth);
 
         // 2.3 repay
         //    *** Your code here ***
         {
-            uint256 weth_needed = earned_weth - 24 ether;
+            // uint256 weth_needed = 1505 ether;
+            uint256 weth_needed = 1424 ether;
             console.log("WETH repayed:", weth_needed);
             IERC20(WETH).transfer(weth_usdt, weth_needed);
         }
